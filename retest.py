@@ -3,7 +3,7 @@ import streamlit as st
 import os
 
 # 设置标题
-st.title("上传并选择列作为测试数据的输入")
+st.title("上传数据用来统计retest，fail信息")
 
 # 让用户上传文件
 uploaded_file = st.file_uploader("选择一个Excel文件", type=["xlsx"])

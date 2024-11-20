@@ -1,38 +1,42 @@
 import pandas as pd
 import streamlit as st
-import os
 
 # 设置标题
-st.title("上传数据用来统计retest，fail信息")
+st.title("Retest TrackMetrics")
 
-# 让用户上传文件
+# 上传文件
 uploaded_file = st.file_uploader("选择一个Excel文件", type=["xlsx"])
 
-if uploaded_file is not None:
-    # 读取上传的Excel文件
+if uploaded_file:
+    # 读取文件
     data = pd.read_excel(uploaded_file)
 
-    # 显示文件内容（可选）
+    # 显示数据预览
     st.write("上传的测试数据：")
-    st.dataframe(data)
+    st.dataframe(data.head())
 
-    # 获取数据的列名
-    columns = data.columns.tolist()
+    # 获取列名供用户选择
+    columns = ["未选择"] + data.columns.tolist()  # 添加“未选择”作为默认选项
+    sn_column = st.selectbox("选择SN列", columns, index=0)
+    date_column = st.selectbox("选择Date列", columns, index=0)
+    time_column = st.selectbox("选择Time列", columns, index=0)
+    result_column = st.selectbox("选择测试结果列", columns, index=0)
+    product_column = st.selectbox("选择产品型号列（可为空）", ["无（不分型号）"] + data.columns.tolist(), index=0)
 
-    # 用户选择列名
-    sn_column = st.selectbox("选择SN列", columns)
-    date_column = st.selectbox("选择Date列", columns)
-    time_column = st.selectbox("选择Time列", columns)
-    result_column = st.selectbox("选择测试结果列", columns)
-    product_column = st.selectbox("选择产品型号列", columns)
+    # 检查是否有未选择的必填选项
+    if "未选择" in [sn_column, date_column, time_column, result_column]:
+        st.warning("请确保所有必选列已选择！")
+        st.stop()
 
-    # 显示用户选择的列
-    st.write(f"您选择的列：SN列 - {sn_column}, Date列 - {date_column}, Time列 - {time_column}, 测试结果列 - {result_column}, 产品型号列 - {product_column}")
-
-    # 确保日期和时间列的格式正确
+    # 确保日期和时间列合并正确
     try:
-        data['测试时间'] = pd.to_datetime(data[date_column].astype(str) + ' ' + data[time_column].astype(str), errors='coerce')
-        data['测试日期'] = data['测试时间'].dt.date  # 提取日期部分
+        data['测试时间'] = pd.to_datetime(
+            data[date_column].astype(str) + ' ' + data[time_column].astype(str), errors='coerce'
+        )
+        if data['测试时间'].isna().any():
+            st.error("部分日期或时间无效，请检查数据格式！")
+            st.stop()
+        data['测试日期'] = data['测试时间'].dt.date
     except Exception as e:
         st.error(f"日期或时间列解析失败: {e}")
         st.stop()
@@ -40,76 +44,61 @@ if uploaded_file is not None:
     # 按SN和测试时间排序
     data = data.sort_values(by=[sn_column, '测试时间']).reset_index(drop=True)
 
-    # 找出每个SN的最后一次结果
+    # 获取每个SN的最新测试结果
     latest_data = data.drop_duplicates(subset=[sn_column], keep='last')
 
-    # 判断 fail 结果（只有最后一次测试为 fail 才计数）
-    data['最终结果'] = data.apply(
-        lambda row: 'fail' if row[sn_column] in latest_data[latest_data[result_column].str.lower() == 'fail'][sn_column].values else 'pass',
-        axis=1
-    )
+    # 标记最终结果
+    fail_sns = latest_data[latest_data[result_column].str.lower() == 'fail'][sn_column].values
+    data['最终结果'] = data[sn_column].apply(lambda x: 'fail' if x in fail_sns else 'pass')
 
-    # 将复测成功的 SN 汇总到首次测试日期
-    data['汇总日期'] = data.apply(
-        lambda row: row['测试日期'] if row[sn_column] not in latest_data[latest_data[result_column].str.lower() == 'pass'][sn_column].values
-        else data[data[sn_column] == row[sn_column]]['测试日期'].min(),
-        axis=1
-    )
+    # 计算每个SN的首次测试日期
+    data['按日期统计'] = data.groupby(sn_column)['测试日期'].transform('min')
 
-    # 按汇总日期统计
+    # 按产品型号和按日期统计统计
+    def format_test_details(sn_group):
+        """格式化SN的测试详情"""
+        test_details = []
+        for i, (_, row) in enumerate(sn_group.iterrows(), 1):
+            result = row[result_column].lower()
+            test_details.append(f"@{row['测试时间'].strftime('%Y/%m/%d %H:%M:%S')} {i}st test {result}")
+        return test_details
+
     def calculate_stats(group):
-        total_tests = len(group)  # 测试总数
-        retests = group.duplicated(subset=[sn_column]).sum()  # 复测数
-        fails = group[group['最终结果'] == 'fail'].shape[0]  # fail数
-        unique_sn_count = group[sn_column].nunique()  # 去重的SN数量
+        """统计数据并格式化retest_sn和fail_sn"""
+        total_tests = len(group)
+        retests = group.duplicated(subset=[sn_column]).sum()
+        fails = group[group['最终结果'] == 'fail'].shape[0]
+        unique_sn_count = group[sn_column].nunique()
 
-        # 获取Retest的SN及其复测详细信息
-        retest_sn_details = []
+        # 获取复测SN及其详情
+        retest_details = []
         retest_group = group[group.duplicated(subset=[sn_column], keep=False)]
         for sn, sn_group in retest_group.groupby(sn_column):
-            test_details = []
-            sn_tests = sn_group.sort_values(by='测试时间')
-            for i, (idx, row) in enumerate(sn_tests.iterrows(), 1):  # 使用enumerate替代index
-                test_result = row[result_column].lower()
-                test_details.append(
-                    f"@{row['测试时间'].strftime('%Y/%m/%d %H:%M:%S')} {i}st test {test_result}"
-                )
-            retest_sn_details.append(f"{sn} test {len(sn_tests)} times\n" + "\n".join(test_details))
+            test_details = format_test_details(sn_group)
+            retest_details.append(f"{sn} test {len(test_details)} times\n" + "\n".join(test_details))
 
-        # 获取Fail的SN及其失败详细信息
-        fail_sn_details = []
+        # 获取失败SN及其详情
+        fail_details = []
         fail_group = group[group['最终结果'] == 'fail']
         for sn, sn_group in fail_group.groupby(sn_column):
-            test_details = []
-            sn_tests = sn_group.sort_values(by='测试时间')
-            for i, (idx, row) in enumerate(sn_tests.iterrows(), 1):  # 使用enumerate替代index
-                test_details.append(
-                    f"@{row['测试时间'].strftime('%Y/%m/%d %H:%M:%S')} {i}st test {row[result_column].lower()}"
-                )
-            fail_sn_details.append(f"{sn} test {len(sn_tests)} times\n" + "\n".join(test_details))
+            test_details = format_test_details(sn_group)
+            fail_details.append(f"{sn} test {len(test_details)} times\n" + "\n".join(test_details))
 
         return pd.Series({
-            'total_test': total_tests,
-            'retest': retests,
-            'fail': fails,
-            'unique_samples': unique_sn_count,
-            'retest_sn': "\n".join(retest_sn_details),  # 复测的详细信息
-            'fail_sn': "\n".join(fail_sn_details)  # 失败的详细信息
+            '测试总数': total_tests,
+            '唯一SN计数': unique_sn_count,
+            'Retest Pass SN 计数': retests,
+            'Fail SN 计数': fails,
+            'Retest Pass SN Details': "\n".join(retest_details),
+            'Fail SN Details': "\n".join(fail_details)
         })
 
-    stats_by_product = data.groupby([product_column, '汇总日期']).apply(calculate_stats).reset_index()
+    # 判断是否按产品型号分组
+    if product_column == "无（不分型号）":
+        stats = data.groupby(['按日期统计']).apply(calculate_stats).reset_index()
+    else:
+        stats = data.groupby([product_column, '按日期统计']).apply(calculate_stats).reset_index()
 
     # 显示统计结果
-    st.write("按产品型号和日期统计结果：")
-    st.dataframe(stats_by_product)
-
-    # 提供保存结果的选项
-    output_path = st.text_input("保存结果文件路径", r"C:\Users\320026234\Desktop\2024\APP\MM\按产品型号和日期统计结果.xlsx")
-    if output_path:
-        try:
-            # 确保文件夹存在
-            os.makedirs(os.path.dirname(output_path), exist_ok=True)
-            stats_by_product.to_excel(output_path, index=False)
-            st.write(f"按产品型号和日期统计结果已保存到 {output_path}")
-        except Exception as e:
-            st.error(f"保存结果失败: {e}")
+    st.write("统计结果：")
+    st.dataframe(stats)

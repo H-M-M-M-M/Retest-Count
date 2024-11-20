@@ -1,5 +1,6 @@
 import pandas as pd
 import streamlit as st
+import os
 
 # 设置标题
 st.title("上传并选择列作为测试数据的输入")
@@ -23,13 +24,18 @@ if uploaded_file is not None:
     date_column = st.selectbox("选择Date列", columns)
     time_column = st.selectbox("选择Time列", columns)
     result_column = st.selectbox("选择测试结果列", columns)
+    product_column = st.selectbox("选择产品型号列", columns)
 
     # 显示用户选择的列
-    st.write(f"您选择的列：SN列 - {sn_column}, Date列 - {date_column}, Time列 - {time_column}, 测试结果列 - {result_column}")
+    st.write(f"您选择的列：SN列 - {sn_column}, Date列 - {date_column}, Time列 - {time_column}, 测试结果列 - {result_column}, 产品型号列 - {product_column}")
 
-    # 处理并合并Date和Time列为完整的测试时间
-    data['测试时间'] = pd.to_datetime(data[date_column].astype(str) + ' ' + data[time_column].astype(str), errors='coerce')
-    data['测试日期'] = data['测试时间'].dt.date  # 提取日期部分
+    # 确保日期和时间列的格式正确
+    try:
+        data['测试时间'] = pd.to_datetime(data[date_column].astype(str) + ' ' + data[time_column].astype(str), errors='coerce')
+        data['测试日期'] = data['测试时间'].dt.date  # 提取日期部分
+    except Exception as e:
+        st.error(f"日期或时间列解析失败: {e}")
+        st.stop()
 
     # 按SN和测试时间排序
     data = data.sort_values(by=[sn_column, '测试时间']).reset_index(drop=True)
@@ -91,13 +97,19 @@ if uploaded_file is not None:
             'fail_sn': "\n".join(fail_sn_details)  # 失败的详细信息
         })
 
-    stats_by_date = data.groupby('汇总日期').apply(calculate_stats).reset_index()
+    stats_by_product = data.groupby([product_column, '汇总日期']).apply(calculate_stats).reset_index()
 
     # 显示统计结果
-    st.write("按日期统计结果：")
-    st.dataframe(stats_by_date)
+    st.write("按产品型号和日期统计结果：")
+    st.dataframe(stats_by_product)
 
-    # 保存结果到Excel
-    output_path = r"C:\Users\320026234\Desktop\2024\APP\MM\按日期统计结果.xlsx"
-    stats_by_date.to_excel(output_path, index=False)
-    st.write(f"按日期统计结果已保存到 {output_path}")
+    # 提供保存结果的选项
+    output_path = st.text_input("保存结果文件路径", r"C:\Users\320026234\Desktop\2024\APP\MM\按产品型号和日期统计结果.xlsx")
+    if output_path:
+        try:
+            # 确保文件夹存在
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+            stats_by_product.to_excel(output_path, index=False)
+            st.write(f"按产品型号和日期统计结果已保存到 {output_path}")
+        except Exception as e:
+            st.error(f"保存结果失败: {e}")

@@ -5,9 +5,8 @@ import streamlit as st
 st.title("Retest TrackMetrics")
 
 # 添加计数规则说明
-st.write("### 使用说明")
+st.write("### 统计规则")
 st.markdown("""
-**计数规则：**
 1. **Fail 的计数规则：**
    - 如果某个 SN 的最后一次测试结果为 **fail**，才计为 fail，之前的 fail 不重复计数。
    - 如果某个 SN 的最后一次测试结果为 **pass**，即使之前有 fail，也不计入 fail 数。

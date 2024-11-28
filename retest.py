@@ -10,9 +10,8 @@ st.markdown("""
 **计数规则：**
 1. **Fail 的计数规则：**
    - 如果某个 SN 的最后一次测试结果为 **fail**，才计为 fail，之前的 fail 不重复计数。
-   - 如果某个 SN 的最后一次测试结果为 **pass**，即使之前有 fail，也不计入 fail 数。
 2. **Retest 的计数规则：**
-   - 一个 SN 出现多次测试，且最后一次测试结果为 **pass**，即算作 retest pass。
+   - 一个 SN 出现多次测试，且最后一次测试结果为 **pass**，即算作 retest pass，且同一个SN不会被重复计数。
 """)
 
 # 上传文件
@@ -58,7 +57,7 @@ if uploaded_file:
     # 获取每个SN的最新测试结果
     latest_data = data.drop_duplicates(subset=[sn_column], keep='last')
 
-    # 标记最终结果
+    # 标记最终结果：如果最后一次测试是fail，标记为fail，否则标记为pass
     fail_sns = latest_data[latest_data[result_column].str.lower() == 'fail'][sn_column].values
     data['最终结果'] = data[sn_column].apply(lambda x: 'fail' if x in fail_sns else 'pass')
 
@@ -77,20 +76,28 @@ if uploaded_file:
     def calculate_stats(group):
         """统计数据并格式化retest_sn和fail_sn"""
         total_tests = len(group)
-        retests = group.duplicated(subset=[sn_column]).sum()
-        fails = group[group['最终结果'] == 'fail'].shape[0]
         unique_sn_count = group[sn_column].nunique()
+
+        # 获取 Fail SN
+        fail_sns = group[group['最终结果'] == 'fail'][sn_column].drop_duplicates()
+        fails = len(fail_sns)
+
+        # 获取 Retest Pass SN（多次测试，最后一次是pass）
+        retest_pass_sns = group.groupby(sn_column).filter(lambda x: len(x) > 1)  # 多次测试的SN
+        retest_pass_sns = retest_pass_sns[retest_pass_sns[result_column].str.lower() == 'pass']
+        retest_pass_sns = retest_pass_sns.drop_duplicates(subset=[sn_column])  # 去重
+        retests = len(retest_pass_sns)
 
         # 获取复测SN及其详情
         retest_details = []
-        retest_group = group[group.duplicated(subset=[sn_column], keep=False)]
+        retest_group = group[group[sn_column].isin(retest_pass_sns[sn_column])]
         for sn, sn_group in retest_group.groupby(sn_column):
             test_details = format_test_details(sn_group)
             retest_details.append(f"{sn} test {len(test_details)} times\n" + "\n".join(test_details))
 
         # 获取失败SN及其详情
         fail_details = []
-        fail_group = group[group['最终结果'] == 'fail']
+        fail_group = group[group[sn_column].isin(fail_sns)]
         for sn, sn_group in fail_group.groupby(sn_column):
             test_details = format_test_details(sn_group)
             fail_details.append(f"{sn} test {len(test_details)} times\n" + "\n".join(test_details))

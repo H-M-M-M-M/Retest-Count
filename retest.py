@@ -15,13 +15,14 @@ if uploaded_file:
     st.write("Uploaded Test Data:")
     st.dataframe(data.head())
 
-    # Select columns
+    # Select columns for analysis
     columns = ["Not Selected"] + data.columns.tolist()
     sn_column = st.selectbox("Select SN Column", columns, index=0)
     date_column = st.selectbox("Select Test Date Column", columns, index=0)
     time_column = st.selectbox("Select Test Time Column", columns, index=0)
     status_column = st.selectbox("Select Test Status Column", columns, index=0)
 
+    # If not all columns are selected, prompt the user
     if "Not Selected" in [sn_column, date_column, time_column, status_column]:
         st.warning("Please select all required columns!")
         st.stop()
@@ -45,7 +46,7 @@ if uploaded_file:
     first_test = data.drop_duplicates(subset=[sn_column], keep="first")
     first_test_pass = first_test[first_test[status_column].str.lower() == "pass"][sn_column].nunique()
 
-    # Retest Pass
+    # Retest Pass: Test if the last record is a pass, and the time difference between tests is < 3 days
     retest_pass_sn = (
         data.groupby(sn_column)
         .filter(lambda x: len(x) > 1 and x.iloc[-1][status_column].lower() == "pass")
@@ -54,20 +55,20 @@ if uploaded_file:
     )
     retest_pass_count = retest_pass_sn[sn_column].nunique()
 
-    # True Fail
+    # True Fail: Filter out last tests that are fail and count them based on their first test date
     latest_test = data.drop_duplicates(subset=[sn_column], keep="last")
     true_fail_sn = latest_test[latest_test[status_column].str.lower() == "fail"]
     true_fail_count = true_fail_sn[sn_column].nunique()
 
-    # Rework
+    # Rework: Filter out SNs that have more than one test with a time gap > 3 days
     rework_sn = (
         data.groupby(sn_column)
         .filter(lambda x: len(x) > 1 and (x["Test Time"].max() - x["Test Time"].min()).days > 3)
     )
     rework_count = rework_sn[sn_column].nunique()
 
-    # Summary of Retest Pass, True Fail, and Rework
-    def format_summary(group, status_column, result_filter):
+    # Function to format SN test details
+    def format_summary(group, status_column):
         summary = []
         for sn, sn_group in group.groupby(sn_column):
             details = []
@@ -79,9 +80,9 @@ if uploaded_file:
         return "\n".join(summary)
 
     # Format summaries for Retest Pass, True Fail, and Rework
-    retest_pass_summary = format_summary(retest_pass_sn, status_column, "pass")
-    true_fail_summary = format_summary(true_fail_sn, status_column, "fail")
-    rework_summary = format_summary(rework_sn, status_column, "rework")
+    retest_pass_summary = format_summary(retest_pass_sn, status_column)
+    true_fail_summary = format_summary(true_fail_sn, status_column)
+    rework_summary = format_summary(rework_sn, status_column)
 
     # Display summary
     st.write("### Summary:")
@@ -92,7 +93,7 @@ if uploaded_file:
     st.write(f"**True Fail:** {true_fail_count}")
     st.write(f"**Rework:** {rework_count}")
 
-    # Display detailed summaries
+    # Display detailed summaries for Retest Pass, True Fail, and Rework
     st.write("### Retest Pass SN Summary:")
     st.text(retest_pass_summary)
 

@@ -3,3 +3,4 @@ numpy
 pandas
 openpyxl
 plotly
+xlsxwriter

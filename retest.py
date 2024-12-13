@@ -66,6 +66,8 @@ if uploaded_file:
     true_fail_sn = latest_test[latest_test[status_column].str.lower() == "fail"]
     true_fail_count = true_fail_sn[sn_column].nunique()
 
+    true_fail_data = data[data[sn_column].isin(true_fail_sn[sn_column])]
+
     # Rework
     rework_sn = (
         data.groupby(sn_column)
@@ -96,7 +98,7 @@ if uploaded_file:
 
     # Format summaries for Retest Pass, True Fail, and Rework
     retest_pass_summary = format_summary(retest_pass_sn, status_column)
-    true_fail_summary = format_summary(true_fail_sn, status_column)
+    true_fail_summary = format_summary(true_fail_data, status_column)
     rework_summary = format_summary(rework_sn, status_column)
 
     # Function to render two-column table
@@ -112,7 +114,7 @@ if uploaded_file:
     # Allow user to download summaries and data as Excel
     with pd.ExcelWriter("summaries.xlsx", engine="xlsxwriter") as writer:
         retest_pass_sn.to_excel(writer, sheet_name="Retest Pass", index=False)
-        true_fail_sn.to_excel(writer, sheet_name="True Fail", index=False)
+        true_fail_data.to_excel(writer, sheet_name="True Fail", index=False)
         rework_sn.to_excel(writer, sheet_name="Rework", index=False)
         retest_pass_summary.to_excel(writer, sheet_name="Retest Pass Summary", index=False)
         true_fail_summary.to_excel(writer, sheet_name="True Fail Summary", index=False)
@@ -125,17 +127,17 @@ if uploaded_file:
             file_name="summaries.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-        
+
     # Display source data for Retest Pass, True Fail, and Rework
     st.write("### Retest Pass SN Raw Data:")
     st.dataframe(retest_pass_sn)
 
     st.write("### True Fail SN Raw Data:")
-    st.dataframe(true_fail_sn)
+    st.dataframe(true_fail_data)
 
     st.write("### Rework SN Raw Data:")
     st.dataframe(rework_sn)
-    
+
     # Display summaries
     render_summary(retest_pass_summary, "Retest Pass SN Summary")
     render_summary(true_fail_summary, "True Fail SN Summary")

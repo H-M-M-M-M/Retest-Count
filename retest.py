@@ -24,14 +24,16 @@ if uploaded_file:
     date_column = st.selectbox("Select Test Date Column", columns, index=0)
     time_column = st.selectbox("Select Test Time Column", columns, index=0)
     status_column = st.selectbox("Select Test Status Column", columns, index=0)
+    probe_column = st.selectbox("Select Probe Type Column (Optional)", columns, index=0)
 
     if "Not Selected" in [sn_column, date_column, time_column, status_column]:
         st.warning("Please select all required columns!")
         st.stop()
 
     # Strip spaces from selected columns
-    for col in [sn_column, date_column, time_column, status_column]:
-        data[col] = data[col].astype(str).str.strip()
+    for col in [sn_column, date_column, time_column, status_column, probe_column]:
+        if col != "Not Selected":
+            data[col] = data[col].astype(str).str.strip()
 
     # Combine date and time into a single datetime column
     data["Test Time"] = pd.to_datetime(
@@ -44,45 +46,50 @@ if uploaded_file:
     # Sort data by SN and Test Time
     data = data.sort_values(by=[sn_column, "Test Time"]).reset_index(drop=True)
 
-    # Total Tests
-    total_tests = len(data)
-    unique_sn_count = data[sn_column].nunique()
+    # Helper function to calculate summary
+    def calculate_summary(group):
+        total_tests = len(group)
+        unique_sn_count = group[sn_column].nunique()
 
-    # 1st Test Pass
-    first_test = data.drop_duplicates(subset=[sn_column], keep="first")
-    first_test_pass = first_test[first_test[status_column].str.lower() == "pass"][sn_column].nunique()
+        # 1st Test Pass
+        first_test = group.drop_duplicates(subset=[sn_column], keep="first")
+        first_test_pass = first_test[first_test[status_column].str.lower() == "pass"][sn_column].nunique()
 
-    # Retest Pass
-    retest_pass_sn = (
-        data.groupby(sn_column)
-        .filter(lambda x: len(x) > 1 and x.iloc[-1][status_column].lower() == "pass")
-        .groupby(sn_column)
-        .filter(lambda x: (x["Test Time"].max() - x["Test Time"].min()).days < 3)
-    )
-    retest_pass_count = retest_pass_sn[sn_column].nunique()
+        # Retest Pass
+        retest_pass_sn = (
+            group.groupby(sn_column)
+            .filter(lambda x: len(x) > 1 and x.iloc[-1][status_column].lower() == "pass")
+            .groupby(sn_column)
+            .filter(lambda x: (x["Test Time"].max() - x["Test Time"].min()).days < 3)
+        )
+        retest_pass_count = retest_pass_sn[sn_column].nunique()
 
-    # True Fail
-    latest_test = data.drop_duplicates(subset=[sn_column], keep="last")
-    true_fail_sn = latest_test[latest_test[status_column].str.lower() == "fail"]
-    true_fail_count = true_fail_sn[sn_column].nunique()
+        # True Fail
+        latest_test = group.drop_duplicates(subset=[sn_column], keep="last")
+        true_fail_sn = latest_test[latest_test[status_column].str.lower() == "fail"]
+        true_fail_count = true_fail_sn[sn_column].nunique()
 
-    true_fail_data = data[data[sn_column].isin(true_fail_sn[sn_column])]
+        # Rework
+        rework_sn = (
+            group.groupby(sn_column)
+            .filter(lambda x: len(x) > 1 and (x["Test Time"].max() - x["Test Time"].min()).days > 3)
+        )
+        rework_count = rework_sn[sn_column].nunique()
 
-    # Rework
-    rework_sn = (
-        data.groupby(sn_column)
-        .filter(lambda x: len(x) > 1 and (x["Test Time"].max() - x["Test Time"].min()).days > 3)
-    )
-    rework_count = rework_sn[sn_column].nunique()
+        return {
+            "Total Tests": total_tests,
+            "Unique SN Count": unique_sn_count,
+            "1st Test Pass": first_test_pass,
+            "Retest Pass": retest_pass_count,
+            "True Fail": true_fail_count,
+            "Rework": rework_count,
+            "Retest Pass SN Data": retest_pass_sn,
+            "True Fail SN Data": group[group[sn_column].isin(true_fail_sn[sn_column])],
+            "Rework SN Data": rework_sn,
+        }
 
-    # Display summary statistics
-    st.write("### Summary:")
-    st.write(f"**Total Tests:** {total_tests}")
-    st.write(f"**Unique SN Count:** {unique_sn_count}")
-    st.write(f"**1st Test Pass:** {first_test_pass}")
-    st.write(f"**Retest Pass:** {retest_pass_count}")
-    st.write(f"**True Fail:** {true_fail_count}")
-    st.write(f"**Rework:** {rework_count}")
+    # Overall summary
+    overall_summary = calculate_summary(data)
 
     # Summary of Retest Pass, True Fail, and Rework
     def format_summary(group, status_column):
@@ -96,12 +103,60 @@ if uploaded_file:
             summary.append((sn, "<br>".join(details)))
         return pd.DataFrame(summary, columns=["SN", "Details"])
 
-    # Format summaries for Retest Pass, True Fail, and Rework
-    retest_pass_summary = format_summary(retest_pass_sn, status_column)
-    true_fail_summary = format_summary(true_fail_data, status_column)
-    rework_summary = format_summary(rework_sn, status_column)
+    retest_pass_summary = format_summary(overall_summary["Retest Pass SN Data"], status_column)
+    true_fail_summary = format_summary(overall_summary["True Fail SN Data"], status_column)
+    rework_summary = format_summary(overall_summary["Rework SN Data"], status_column)
 
-    # Function to render two-column table
+    # Display overall summary
+    st.write("### Overall Summary:")
+    for key, value in overall_summary.items():
+        if key.endswith("Data"):
+            continue  # Skip detailed data
+        st.write(f"**{key}:** {value}")
+        
+    # Probe Type Summary (Optional)
+    if probe_column != "Not Selected":
+        st.write("### Probe Type Summary:")
+        probe_summary = []
+        for probe_type, group in data.groupby(probe_column):
+            summary = calculate_summary(group)
+            summary[probe_column] = probe_type
+            probe_summary.append({k: v for k, v in summary.items() if not k.endswith("Data")})
+        probe_summary_df = pd.DataFrame(probe_summary).set_index(probe_column)
+        st.dataframe(probe_summary_df)
+
+    # Allow user to download summaries and data as Excel
+    with pd.ExcelWriter("summaries.xlsx", engine="xlsxwriter") as writer:
+        if probe_column != "Not Selected":
+            probe_summary_df.to_excel(writer, sheet_name="Probe Type Summary")
+        #data.to_excel(writer, sheet_name="Full Data", index=False)
+        overall_summary["Retest Pass SN Data"].to_excel(writer, sheet_name="Retest Pass SN", index=False)
+        overall_summary["True Fail SN Data"].to_excel(writer, sheet_name="True Fail SN", index=False)
+        overall_summary["Rework SN Data"].to_excel(writer, sheet_name="Rework SN", index=False)
+        retest_pass_summary.to_excel(writer, sheet_name="Retest Pass Summary", index=False)
+        true_fail_summary.to_excel(writer, sheet_name="True Fail Summary", index=False)
+        rework_summary.to_excel(writer, sheet_name="Rework Summary", index=False)
+        writer.save()
+
+    with open("summaries.xlsx", "rb") as file:
+        st.download_button(
+            label="Download Summaries as Excel",
+            data=file,
+            file_name="summaries.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+    # Display Retest Pass, True Fail, and Rework raw data
+    st.write("### Retest Pass SN Raw Data:")
+    st.dataframe(overall_summary["Retest Pass SN Data"])
+
+    st.write("### True Fail SN Raw Data:")
+    st.dataframe(overall_summary["True Fail SN Data"])
+
+    st.write("### Rework SN Raw Data:")
+    st.dataframe(overall_summary["Rework SN Data"])
+
+    # Display summaries
     def render_summary(summary, title):
         st.write(f"### {title}")
         table = "<table style='width:100%; border-collapse: collapse;'>"
@@ -111,34 +166,7 @@ if uploaded_file:
         table += "</table>"
         st.markdown(table, unsafe_allow_html=True)
 
-    # Allow user to download summaries and data as Excel
-    with pd.ExcelWriter("summaries.xlsx", engine="xlsxwriter") as writer:
-        retest_pass_sn.to_excel(writer, sheet_name="Retest Pass", index=False)
-        true_fail_data.to_excel(writer, sheet_name="True Fail", index=False)
-        rework_sn.to_excel(writer, sheet_name="Rework", index=False)
-        retest_pass_summary.to_excel(writer, sheet_name="Retest Pass Summary", index=False)
-        true_fail_summary.to_excel(writer, sheet_name="True Fail Summary", index=False)
-        rework_summary.to_excel(writer, sheet_name="Rework Summary", index=False)
-
-    with open("summaries.xlsx", "rb") as file:
-        st.download_button(
-            label="Download Summaries as Excel",
-            data=file,
-            file_name="summaries.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-
-    # Display source data for Retest Pass, True Fail, and Rework
-    st.write("### Retest Pass SN Raw Data:")
-    st.dataframe(retest_pass_sn)
-
-    st.write("### True Fail SN Raw Data:")
-    st.dataframe(true_fail_data)
-
-    st.write("### Rework SN Raw Data:")
-    st.dataframe(rework_sn)
-
-    # Display summaries
     render_summary(retest_pass_summary, "Retest Pass SN Summary")
     render_summary(true_fail_summary, "True Fail SN Summary")
     render_summary(rework_summary, "Rework SN Summary")
+

@@ -136,7 +136,8 @@ if uploaded_file:
         retest_pass_summary.to_excel(writer, sheet_name="Retest Pass Summary", index=False)
         true_fail_summary.to_excel(writer, sheet_name="True Fail Summary", index=False)
         rework_summary.to_excel(writer, sheet_name="Rework Summary", index=False)
-        writer.save()
+        
+        writer._save()
 
     with open("summaries.xlsx", "rb") as file:
         st.download_button(

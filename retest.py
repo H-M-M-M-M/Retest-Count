@@ -2,7 +2,7 @@ import pandas as pd
 import streamlit as st
 
 # Title
-st.title("Test Data Analysis App")
+st.title("⛑Test Data Analysis App复测|不良统计工具")
 
 # Upload Excel file
 uploaded_file = st.file_uploader("Upload an Excel file", type=["xlsx"])

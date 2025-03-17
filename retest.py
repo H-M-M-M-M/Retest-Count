@@ -1,5 +1,6 @@
 import pandas as pd
 import streamlit as st
+import io
 
 # Title
 st.title("⛑Test Data Analysis App复测|不良统计工具🛴🛴🛴")
@@ -8,14 +9,21 @@ st.title("⛑Test Data Analysis App复测|不良统计工具🛴🛴🛴")
 uploaded_file = st.file_uploader("Upload an Excel file", type=["xlsx"])
 
 if uploaded_file:
-    # Load data
-    data = pd.read_excel(uploaded_file)
+    # Load Excel file
+    xls = pd.ExcelFile(uploaded_file)
+
+    # Let the user select a sheet
+    sheet_names = xls.sheet_names
+    sheet_name = st.selectbox("Select a sheet", sheet_names)
+
+    # Load data from the selected sheet
+    data = pd.read_excel(xls, sheet_name=sheet_name)
 
     # Strip leading/trailing spaces from column names
     data.columns = data.columns.str.strip()
 
     # Display raw data
-    st.write("Uploaded Test Data:")
+    st.write(f"Data from sheet: {sheet_name}")
     st.dataframe(data.head())
 
     # Select columns
@@ -30,18 +38,37 @@ if uploaded_file:
         st.warning("Please select all required columns!")
         st.stop()
 
-    # Strip spaces from selected columns
+    # Convert relevant columns to strings and strip whitespace
     for col in [sn_column, date_column, time_column, status_column, probe_column]:
         if col != "Not Selected":
             data[col] = data[col].astype(str).str.strip()
 
-    # Combine date and time into a single datetime column
-    data["Test Time"] = pd.to_datetime(
-        data[date_column].astype(str) + " " + data[time_column].astype(str), errors="coerce"
-    )
+    # Standardize status values to lower case
+    data[status_column] = data[status_column].str.lower()
+
+    # Handle potential issues with date and time conversion
+    try:
+        # 将日期和时间列转换为 datetime 类型，如果有无效值会被转换为 NaT
+        data[date_column] = pd.to_datetime(data[date_column], errors='coerce')
+        data[time_column] = pd.to_datetime(data[time_column], errors='coerce')
+        # 删除日期或时间无效的行
+        data = data.dropna(subset=[date_column, time_column])
+        
+        # 合并日期和时间为单个 datetime 列
+        data["Test Time"] = pd.to_datetime(
+            data[date_column].astype(str) + " " + data[time_column].astype(str),
+            errors="raise"
+        )
+    except Exception as e:
+        st.error(f"Error converting date and time: {e}")
+        st.stop()
+
     if data["Test Time"].isna().any():
         st.error("Invalid date or time detected. Please check your data!")
         st.stop()
+
+    # 转换 datetime 为时区无关（naive）的格式，Excel 不支持带时区的 datetime
+    data["Test Time"] = data["Test Time"].apply(lambda x: x.replace(tzinfo=None) if pd.notnull(x) else x)
 
     # Sort data by SN and Test Time
     data = data.sort_values(by=[sn_column, "Test Time"]).reset_index(drop=True)
@@ -53,12 +80,12 @@ if uploaded_file:
 
         # 1st Test Pass
         first_test = group.drop_duplicates(subset=[sn_column], keep="first")
-        first_test_pass = first_test[first_test[status_column].str.lower() == "pass"][sn_column].nunique()
+        first_test_pass = first_test[first_test[status_column] == "pass"][sn_column].nunique()
 
         # Retest Pass
         retest_pass_sn = (
             group.groupby(sn_column)
-            .filter(lambda x: len(x) > 1 and x.iloc[-1][status_column].lower() == "pass")
+            .filter(lambda x: len(x) > 1 and x.iloc[-1][status_column] == "pass")
             .groupby(sn_column)
             .filter(lambda x: (x["Test Time"].max() - x["Test Time"].min()).days < 3)
         )
@@ -66,7 +93,7 @@ if uploaded_file:
 
         # True Fail
         latest_test = group.drop_duplicates(subset=[sn_column], keep="last")
-        true_fail_sn = latest_test[latest_test[status_column].str.lower() == "fail"]
+        true_fail_sn = latest_test[latest_test[status_column] == "fail"]
         true_fail_count = true_fail_sn[sn_column].nunique()
 
         # Rework
@@ -129,16 +156,13 @@ if uploaded_file:
     with pd.ExcelWriter("summaries.xlsx", engine="xlsxwriter") as writer:
         if probe_column != "Not Selected":
             probe_summary_df.to_excel(writer, sheet_name="Probe Type Summary")
-        #data.to_excel(writer, sheet_name="Full Data", index=False)
         overall_summary["Retest Pass SN Data"].to_excel(writer, sheet_name="Retest Pass SN", index=False)
         overall_summary["True Fail SN Data"].to_excel(writer, sheet_name="True Fail SN", index=False)
         overall_summary["Rework SN Data"].to_excel(writer, sheet_name="Rework SN", index=False)
         retest_pass_summary.to_excel(writer, sheet_name="Retest Pass Summary", index=False)
         true_fail_summary.to_excel(writer, sheet_name="True Fail Summary", index=False)
         rework_summary.to_excel(writer, sheet_name="Rework Summary", index=False)
-        
-        writer._save()
-
+    
     with open("summaries.xlsx", "rb") as file:
         st.download_button(
             label="Download Summaries as Excel",
@@ -147,13 +171,11 @@ if uploaded_file:
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
-    # Display Retest Pass, True Fail, and Rework raw data
+    # Display raw data summaries
     st.write("### Retest Pass SN Raw Data:")
     st.dataframe(overall_summary["Retest Pass SN Data"])
-
     st.write("### True Fail SN Raw Data:")
     st.dataframe(overall_summary["True Fail SN Data"])
-
     st.write("### Rework SN Raw Data:")
     st.dataframe(overall_summary["Rework SN Data"])
 
@@ -170,4 +192,3 @@ if uploaded_file:
     render_summary(retest_pass_summary, "Retest Pass SN Summary")
     render_summary(true_fail_summary, "True Fail SN Summary")
     render_summary(rework_summary, "Rework SN Summary")
-

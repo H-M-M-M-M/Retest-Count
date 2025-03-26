@@ -103,6 +103,15 @@ if uploaded_file:
         )
         rework_count = rework_sn[sn_column].nunique()
 
+        # Retest Fail
+        retest_fail_sn = (
+            group.groupby(sn_column)
+            .filter(lambda x: len(x) > 1 and x.iloc[-1][status_column] == "fail")
+            .groupby(sn_column)
+            .filter(lambda x: (x["Test Time"].max() - x["Test Time"].min()).days < 3)
+        )
+        retest_fail_count = retest_fail_sn[sn_column].nunique()
+
         return {
             "Total Tests": total_tests,
             "Unique SN Count": unique_sn_count,
@@ -110,15 +119,17 @@ if uploaded_file:
             "Retest Pass": retest_pass_count,
             "True Fail": true_fail_count,
             "Rework": rework_count,
+            "Retest Fail": retest_fail_count,
             "Retest Pass SN Data": retest_pass_sn,
             "True Fail SN Data": group[group[sn_column].isin(true_fail_sn[sn_column])],
             "Rework SN Data": rework_sn,
+            "Retest Fail SN Data": retest_fail_sn,
         }
 
     # Overall summary
     overall_summary = calculate_summary(data)
 
-    # Summary of Retest Pass, True Fail, and Rework
+    # Summary of Retest Pass, True Fail, Rework, and Retest Fail
     def format_summary(group, status_column):
         summary = []
         for sn, sn_group in group.groupby(sn_column):
@@ -133,6 +144,7 @@ if uploaded_file:
     retest_pass_summary = format_summary(overall_summary["Retest Pass SN Data"], status_column)
     true_fail_summary = format_summary(overall_summary["True Fail SN Data"], status_column)
     rework_summary = format_summary(overall_summary["Rework SN Data"], status_column)
+    retest_fail_summary = format_summary(overall_summary["Retest Fail SN Data"], status_column)
 
     # Display overall summary
     st.write("### Overall Summary:")
@@ -159,9 +171,11 @@ if uploaded_file:
         overall_summary["Retest Pass SN Data"].to_excel(writer, sheet_name="Retest Pass SN", index=False)
         overall_summary["True Fail SN Data"].to_excel(writer, sheet_name="True Fail SN", index=False)
         overall_summary["Rework SN Data"].to_excel(writer, sheet_name="Rework SN", index=False)
+        overall_summary["Retest Fail SN Data"].to_excel(writer, sheet_name="Retest Fail SN", index=False)
         retest_pass_summary.to_excel(writer, sheet_name="Retest Pass Summary", index=False)
         true_fail_summary.to_excel(writer, sheet_name="True Fail Summary", index=False)
         rework_summary.to_excel(writer, sheet_name="Rework Summary", index=False)
+        retest_fail_summary.to_excel(writer, sheet_name="Retest Fail Summary", index=False)
     
     with open("summaries.xlsx", "rb") as file:
         st.download_button(
@@ -174,6 +188,8 @@ if uploaded_file:
     # Display raw data summaries
     st.write("### Retest Pass SN Raw Data:")
     st.dataframe(overall_summary["Retest Pass SN Data"])
+    st.write("### Retest Fail SN Raw Data:")
+    st.dataframe(overall_summary["Retest Fail SN Data"])     
     st.write("### True Fail SN Raw Data:")
     st.dataframe(overall_summary["True Fail SN Data"])
     st.write("### Rework SN Raw Data:")
@@ -190,5 +206,6 @@ if uploaded_file:
         st.markdown(table, unsafe_allow_html=True)
 
     render_summary(retest_pass_summary, "Retest Pass SN Summary")
+    render_summary(retest_fail_summary, "Retest Fail SN Summary")
     render_summary(true_fail_summary, "True Fail SN Summary")
     render_summary(rework_summary, "Rework SN Summary")

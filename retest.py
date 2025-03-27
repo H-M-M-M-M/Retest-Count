@@ -49,15 +49,15 @@ if uploaded_file:
     # Handle potential issues with date and time conversion
     try:
         # 将日期和时间列转换为 datetime 类型，如果有无效值会被转换为 NaT
-        data[date_column] = pd.to_datetime(data[date_column], errors='coerce')
-        data[time_column] = pd.to_datetime(data[time_column], errors='coerce')
+        data[date_column] = pd.to_datetime(data[date_column], errors='coerce').dt.date
+        data[time_column] = pd.to_datetime(data[time_column], errors='coerce').dt.time
         # 删除日期或时间无效的行
         data = data.dropna(subset=[date_column, time_column])
         
         # 合并日期和时间为单个 datetime 列
         data["Test Time"] = pd.to_datetime(
             data[date_column].astype(str) + " " + data[time_column].astype(str),
-            errors="raise"
+            errors="coerce"
         )
     except Exception as e:
         st.error(f"Error converting date and time: {e}")

@@ -124,13 +124,13 @@ if uploaded_file:
             "Total Tests": total_tests,
             "Unique SN Count": unique_sn_count,
             "1st Test Pass": first_test_pass,
-            "Retest Pass": retest_pass_count,
             "True Fail": true_fail_count,
+            "Retest Pass": retest_pass_count,
+            "Retest Fail": retest_fail_count,
             "Rework Pass": rework_pass_count,  # Rework Pass count
             "Rework Fail": rework_fail_count,  # Rework Fail count
-            "Retest Fail": retest_fail_count,
-            "Retest Pass SN Data": retest_pass_sn,
             "True Fail SN Data": group[group[sn_column].isin(true_fail_sn[sn_column])],
+            "Retest Pass SN Data": retest_pass_sn,
             "Rework Pass SN Data": rework_pass_sn,  # Rework Pass data
             "Rework Fail SN Data": rework_fail_sn,  # Rework Fail data
             "Retest Fail SN Data": retest_fail_sn,
